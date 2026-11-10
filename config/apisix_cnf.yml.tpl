@@ -3,23 +3,19 @@ apisix:
   node_listen: 9080
   enable_ipv6: false
 
-  enable_control: true
-  control:
-    ip: "0.0.0.0"
-    port: 9092
-
 deployment:
   admin:
+    enable_admin_ui: true
     allow_admin:
       - 0.0.0.0/0
 
     admin_key:
       - name: "admin"
-        key: "${APISIX_ADMIN_KEY}"
+        key: ${{APISIX_ADMIN_KEY}}
         role: admin
 
       - name: "viewer"
-        key: "${APISIX_VIEWER_KEY}"
+        key: ${{APISIX_VIEWER_KEY}}
         role: viewer
 
   etcd:

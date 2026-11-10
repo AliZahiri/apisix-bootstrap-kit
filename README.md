@@ -1,114 +1,92 @@
-# 🧰 APISIX Bootstrap Kit
+# APISIX Bootstrap Kit
 
-A ready-to-use Docker-based toolkit to bootstrap a complete [Apache APISIX](https://apisix.apache.org/) gateway environment with:
+A local Docker Compose lab for Apache APISIX, etcd, the embedded APISIX Dashboard, and a sample gateway route. It provides a small, reproducible environment for learning gateway configuration and testing routes.
 
-- ✅ **APISIX Core** (v3.9.0)
-- 🗃️ **etcd** (Bitnami v3.5.11)
-- 📊 **APISIX Dashboard**
-- ⚙️ **Auto-provisioning Script** for initial sample routes
-- 🔐 **Secrets externalized via `.env`**
-- 🛠️ **Flexible templated configuration**
+This is a local evaluation stack, not a production deployment. Its published ports bind to `127.0.0.1`; do not remove those bindings or attach untrusted containers to the Compose network. Production deployments need separately managed secrets, authenticated and encrypted etcd, access controls, backups, and an operational upgrade plan.
 
----
+## Requirements
 
-## 📦 Features
+- Docker Engine with Docker Compose v2
+- Bash
+- OpenSSL
 
-- Preconfigured for local testing and fast deployment
-- Sample `/google` route setup
-- Control API, Prometheus port, and dashboard all exposed
-- `.env` driven for secret injection (API keys, etc.)
-- Shell script (`runIT.sh`) handles full environment bootstrap
-
----
-
-## 🚀 Getting Started
-
-### 1️⃣ Clone the Repo
+## Start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/apisix-bootstrap-kit.git
+git clone https://github.com/AliZahiri/apisix-bootstrap-kit.git
 cd apisix-bootstrap-kit
+./runIT.sh
 ```
 
-### 2️⃣ Create Your `.env`
+On first run, the script creates a private `.env` with unique random Admin API keys and starts the stack. Compose passes the keys to APISIX as environment variables; the tracked configuration contains no secret values. The script does not print the keys or remove existing Docker volumes. The Admin API and Dashboard are available only from the local machine.
 
-Create a file named `.env` in the root folder:
-
-```env
-APISIX_ADMIN_KEY=YourAdminSecret
-APISIX_VIEWER_KEY=YourViewerSecret
-
-ETCD_NAME=default
-ETCD_PORT=2379
-```
-
-> 🔒 Keep `.env` in `.gitignore` (already included)
-
-### 3️⃣ Run the Bootstrap Script
+To render configuration and validate Compose without starting containers:
 
 ```bash
-sudo ./runIT.sh
+./runIT.sh --prepare-only
+docker compose config --quiet
+python3 scripts/validate_compose.py
 ```
 
-> The script will:
-> - Create all required folders under `/opt/apisix`
-> - Render configuration files using `envsubst`
-> - Launch all services via Docker Compose
-> - Auto-provision a sample route
+## Endpoints
 
----
+| Service | Local URL |
+| --- | --- |
+| Gateway | <http://127.0.0.1:8080/> |
+| Embedded Dashboard | <http://127.0.0.1:9180/ui/> |
+| Admin API | <http://127.0.0.1:9180/apisix/admin/routes> |
+| Prometheus metrics | <http://127.0.0.1:9091/apisix/prometheus/metrics> |
 
-## 📍 Access Points
+The Dashboard is embedded in the pinned APISIX image. On first access, enter the `APISIX_ADMIN_KEY` from `.env` in the Dashboard settings. The legacy standalone Dashboard image has been removed because its 3.0.1 release is only tested with APISIX 3.0.x.
 
-| Service        | URL                                |
-|----------------|-------------------------------------|
-| Gateway (HTTP) | http://localhost:80                |
-| Admin API      | http://localhost:9180/apisix/admin |
-| Dashboard UI   | http://localhost:9100              |
+## Add a sample route
 
----
-
-## 🔐 Credentials
-
-- **Admin Key**: Loaded from `.env`
-- **Dashboard Login**:
-  - Username: `admin`
-  - Password: same as `APISIX_ADMIN_KEY`
-
----
-
-## 🧪 Sample API Test
+The example route proxies `/google` to `google.com`. Create it through the Admin API after the stack is healthy:
 
 ```bash
-curl http://localhost/google
+admin_key="$(sed -n 's/^APISIX_ADMIN_KEY=//p' .env)"
+curl --fail-with-body --silent --show-error \
+  --request PUT \
+  --header "X-API-KEY: ${admin_key}" \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "uri": "/google",
+    "methods": ["GET"],
+    "upstream": {
+      "type": "roundrobin",
+      "nodes": {"google.com:443": 1},
+      "scheme": "https"
+    }
+  }' \
+  http://127.0.0.1:9180/apisix/admin/routes/1
+unset admin_key
 ```
 
-Or
+Then request <http://127.0.0.1:8080/google>.
+
+## Stop and preserve data
 
 ```bash
-curl -H "X-API-KEY: $APISIX_ADMIN_KEY" http://localhost:9180/apisix/admin/routes
+docker compose down
 ```
 
----
+This stops the stack and preserves the named etcd volume. To permanently erase the lab's configuration data, review the Compose project name and explicitly remove its volume with `docker volume rm <project>_etcd_data`.
 
-## 📁 Folder Structure
+The etcd image uses the existing volume path `/bitnami/etcd/data` so an existing stack can carry its local configuration data forward when upgrading from the earlier Bitnami-based Compose setup.
 
-```text
-.
-├── config/
-│   ├── apisix_cnf.yml.tpl
-│   ├── apisix_dsh_cnf.yml.tpl
-│   └── etcd.conf.yml.tpl
-├── docker-compose.yml
-├── runIT.sh
-├── .env
-└── README.md
+## Configuration
+
+- `APISIX_IMAGE_TAG` selects the APISIX image; the default is `3.19.0-debian`.
+- `APISIX_ADMIN_KEY` and `APISIX_VIEWER_KEY` are generated as distinct 64-character hexadecimal values on first run and must remain private.
+- Host ports default to HTTP `8080`, HTTPS `8443`, Admin API/Dashboard `9180`, and metrics `9091`. Set `APISIX_HTTP_PORT`, `APISIX_HTTPS_PORT`, `APISIX_ADMIN_PORT`, or `APISIX_METRICS_PORT` in `.env` to use other free ports in the range 1024-65535.
+- The generated `.env` file is excluded from Git and restricted to the current user.
+
+## Validation
+
+```bash
+bash -n runIT.sh
+shellcheck runIT.sh
+./runIT.sh --prepare-only
+docker compose config --quiet
+python3 scripts/validate_compose.py
 ```
-
----
-
-## 📋 License
-
-MIT License – feel free to modify and extend.
-
----

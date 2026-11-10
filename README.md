@@ -72,6 +72,8 @@ docker compose down
 
 This stops the stack and preserves the named etcd volume. To permanently erase the lab's configuration data, review the Compose project name and explicitly remove its volume with `docker volume rm <project>_etcd_data`.
 
+The etcd image uses the existing volume path `/bitnami/etcd/data` so an existing stack can carry its local configuration data forward when upgrading from the earlier Bitnami-based Compose setup.
+
 ## Configuration
 
 - `APISIX_IMAGE_TAG` selects the APISIX image; the default is `3.19.0-debian`.

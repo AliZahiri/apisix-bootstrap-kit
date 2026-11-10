@@ -20,7 +20,7 @@ assert all(port["host_ip"] == "127.0.0.1" for port in ports)
 assert not etcd.get("ports"), "etcd must not publish host ports"
 assert etcd.get("healthcheck"), "APISIX startup must wait for healthy etcd"
 assert any(
-    volume.get("type") == "volume" and volume.get("target") == "/etcd-data"
+    volume.get("type") == "volume" and volume.get("target") == "/bitnami/etcd"
     for volume in etcd.get("volumes", [])
 ), "etcd data must use a persistent named volume"
 assert apisix.get("depends_on", {}).get("etcd", {}).get("condition") == "service_healthy"

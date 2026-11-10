@@ -1,0 +1,50 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Validate bootstrap script
+        run: |
+          bash -n runIT.sh
+          shellcheck runIT.sh
+      - name: Validate rendered configuration and Compose model
+        run: |
+          ./runIT.sh --prepare-only
+          docker compose config --quiet
+          python3 scripts/validate_compose.py
+      - name: Start the local stack
+        run: docker compose up --detach
+      - name: Validate APISIX config and local endpoints
+        run: |
+          set -eu
+          docker compose exec --no-TTY apisix apisix test
+          for attempt in $(seq 1 30); do
+            dashboard_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:9180/ui/ || true)"
+            if [ "$dashboard_status" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$dashboard_status" = "200"
+          gateway_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:8080/ || true)"
+          test "$gateway_status" != "000"
+          admin_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:9180/apisix/admin/routes || true)"
+          test "$admin_status" = "401"
+          admin_key="$(sed -n 's/^APISIX_ADMIN_KEY=//p' .env)"
+          authenticated_admin_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 --header "X-API-KEY: ${admin_key}" http://127.0.0.1:9180/apisix/admin/routes || true)"
+          unset admin_key
+          test "$authenticated_admin_status" = "200"
+          metrics_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 2 http://127.0.0.1:9091/apisix/prometheus/metrics || true)"
+          test "$metrics_status" = "200"
+      - name: Stop the stack and preserve its volume
+        if: always()
+        run: docker compose down
